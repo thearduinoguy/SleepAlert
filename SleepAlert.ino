@@ -1,21 +1,12 @@
-
-#define sec5 5000
-#define sec15 15000
-#define sec30 30000
-#define sec60 60000
+// Sleep alert clock
+// by Mike McRoberts
 
 #include "LedControl.h"
 #include <ESP8266WiFi.h>
 #include "TimeClient.h"
 #include <WiFiUdp.h>
-extern void slop_wdt_feed();
-/*
-   pin D8 is connected to the DataIn
-   pin D7 is connected to the CLK
-   pin D6 is connected to LOAD
-   We have only a single MAX72XX.
- */
-LedControl lc=LedControl(D8,D7,D6,1);
+
+LedControl lc=LedControl(D7,D5,D1,1);
 
 boolean tick = false;
 unsigned long lastUpdate = millis();
@@ -23,25 +14,25 @@ unsigned long lastSecond = millis();
 unsigned long flashPeriod;
 unsigned long blink;
 boolean flash=1;
-long flashForHowLong;
+unsigned long flashForHowLong;
 
-int alarms[] = {
-        22, 00, sec5,
-        22, 30, sec5,
-        22, 45, sec15,
-        23, 00, sec15,
-        23, 10, sec15,
-        23, 20, sec15,
-        23, 30, sec15,
-        23, 35, sec30,
-        23, 40, sec30,
-        23, 45, sec30,
-        23, 50, sec30,
-        23, 55, sec30,
-        23, 56, sec30,
-        23, 57, sec30,
-        23, 58, sec30,
-        23, 59, sec60
+unsigned int alarms[] = {
+        22, 00, 5,
+        22, 30, 5,
+        22, 45, 15,
+        23, 00, 15,
+        23, 10, 15,
+        23, 20, 15,
+        23, 30, 15,
+        23, 35, 30,
+        23, 40, 30,
+        23, 45, 30,
+        23, 50, 30,
+        23, 55, 30,
+        23, 56, 30,
+        23, 57, 30,
+        23, 58, 30,
+        23, 59, 60,
 };
 
 boolean alert = false;
@@ -49,22 +40,22 @@ boolean alert = false;
 String hours, minutes, seconds;
 int currentSecond, currentMinute, currentHour;
 
-char ssid[] = "xxxxx";  //  your network SSID (name)
-char pass[] = "xxxxx";       // your network password
+char ssid[] = "xxxxxx";  //  your network SSID (name)
+char pass[] = "xxxxxx";       // your network password
 
 const float UTC_OFFSET = 0;
 TimeClient timeClient(UTC_OFFSET);
 
 void setup() {
-        //Serial.begin(9600);
+        Serial.begin(9600);
 
         //Serial.println();
         //Serial.println();
 
         pinMode(D3, OUTPUT);
-        lc.shutdown(0,true);
+        lc.shutdown(0,false);
         /* Set the brightness to a medium values */
-        lc.setIntensity(0,2);
+        lc.setIntensity(0,0);
         /* and clear the display */
         lc.clearDisplay(0);
         // We start by connecting to a WiFi network
@@ -103,77 +94,83 @@ void getTimeFromServer() {
 
 void updateTimeEverySecond()
 {
-        if ((millis() - lastSecond) > 1000)
-        {
-                tick = !tick;
-                //lc.clearDisplay(0);
-                lastSecond = millis();
-                currentSecond++;
-                if (currentSecond > 59)
-                { currentSecond = 0;
-                  currentMinute++;
-                  if (currentMinute > 59) {
-                          currentMinute = 0;
-                          currentHour++;
-                          //if (currentHour > 12) currentHour = 0;
-                  }}
-                String currentTime = "  " + String(currentHour) + ':' + String(currentMinute) + ':' + (currentSecond > 9 ? "" : "0") + String(currentSecond);
-                //Serial.println(currentTime);
 
-                if (currentHour>12) lc.setDigit(0,0,int(currentHour/10),false);
-                lc.setDigit(0,1,int(currentHour%10),(tick ? true : false));
-                lc.setDigit(0,2,int(currentMinute/10),false);
-                lc.setDigit(0,3,int(currentMinute%10),false);
-        }
+        tick = !tick;
+        currentSecond++;
+        if (currentSecond > 59)
+        { currentSecond = 0;
+          currentMinute++;
+          if (currentMinute > 59) {
+                  currentMinute = 0;
+                  currentHour++;
+                  //if (currentHour > 12) currentHour = 0;
+          }}
+        String currentTime = "  " + String(currentHour) + ':' + String(currentMinute) + ':' + (currentSecond > 9 ? "" : "0") + String(currentSecond);
+        //Serial.println(currentTime);
+
+        showTime();
 }
 
 void checkForAlarm()
 {
+        alert=false;
         for (int index=0; index< (sizeof(alarms)/sizeof(int)); index=index+3)
         {
                 if ((alarms[index]==currentHour) && alarms[index+1]==currentMinute && (currentSecond<5))
                 {
                         alert=true;
-                        flashForHowLong=alarms[index+2];
+                        flashForHowLong=alarms[index+2]*1000;
                         //yield();
                 }
         }
 }
 
+void showTime()
+{
+
+        lc.setDigit(0,3,currentMinute%10,false);
+        lc.setDigit(0,2,currentMinute/10,false);
+        lc.setDigit(0,1,currentHour%10,(tick ? true : false));
+        lc.setDigit(0,0,currentHour/10,false);
+}
+
 void loop()
 {
+        if ((millis() - lastUpdate) > 600000) getTimeFromServer();
+
         if ((millis()-lastSecond)>1000)
         {
-          updateTimeEverySecond();
-          checkForAlarm();
+                lastSecond = millis();
+                updateTimeEverySecond();
+                checkForAlarm();
         }
-        if ((millis() - lastUpdate) > 1800000) getTimeFromServer();
 
-        while (alert)
+        while (alert==true)
         {
                 blink=millis();
                 flashPeriod=millis();
-                //Serial.println("Entering while loop");
 
                 while ((millis()-flashPeriod)<flashForHowLong)
                 {
-                        if (flash)
-                        {
-                          lc.shutdown(0,false);
-                          updateTimeEverySecond();
-                        }
-                        else lc.shutdown(0,true);
-
-                        if ((millis()-blink)>200)
+                        if ((millis()-blink)>100)
                         {
                                 flash = !flash;
-                                digitalWrite(D3, flash);
                                 blink=millis();
+                                digitalWrite(D3, flash);
                                 yield();
                         }
+
+                        if (flash)  lc.setIntensity(0,15);
+                        else  lc.setIntensity(0,0);
+
+                        if ((millis()-lastSecond)>1000)
+                        {
+                                lastSecond = millis();
+                                updateTimeEverySecond();
+                        }
                 }
-                lc.shutdown(0,true);
-                alert=false;
                 digitalWrite(D3, LOW);
+                lc.setIntensity(0,0);
+                alert=false;
         }
 }
